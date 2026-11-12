@@ -3,9 +3,10 @@ from pathlib import Path
 from typing import Annotated
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from groq import APIConnectionError, APIStatusError, Groq
 from pydantic import BaseModel, StringConstraints
+from app.rag.chunking import split_text
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -92,3 +93,64 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
 
     return ChatResponse(answer=answer.strip())
+
+
+
+class DocumentPreview(BaseModel):
+    filename: str
+    character_count: int
+    preview: str
+    chunk_count: int
+    chunks: list[str]
+
+
+@app.post(
+    "/documents/preview",
+    response_model=DocumentPreview,
+    tags=["Documents"],
+)
+async def preview_document(file: UploadFile) -> DocumentPreview:
+    max_bytes = 1024 * 1024  # 1 MiB
+
+    try:
+        filename = file.filename or ""
+
+        if Path(filename).suffix.lower() != ".txt":
+            raise HTTPException(
+                status_code=415,
+                detail="Only .txt files are supported for now.",
+            )
+
+        content = await file.read(max_bytes + 1)
+
+        if len(content) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail="The file must be no larger than 1 MiB.",
+            )
+
+        try:
+            text = content.decode("utf-8-sig").strip()
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Save the text file using UTF-8 encoding.",
+            ) from exc
+
+        if not text:
+            raise HTTPException(
+                status_code=422,
+                detail="The file contains no text.",
+            )
+
+        chunks = split_text(text)
+
+        return DocumentPreview(
+            filename=filename,
+            character_count=len(text),
+            preview=text[:500],
+            chunk_count=len(chunks),
+            chunks=chunks,
+        )
+    finally:
+        await file.close()
