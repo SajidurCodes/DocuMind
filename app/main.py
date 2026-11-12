@@ -6,11 +6,14 @@ from typing import Annotated
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from groq import APIConnectionError, APIStatusError, Groq
 from pydantic import BaseModel, StringConstraints
 from starlette.concurrency import run_in_threadpool
 
 from app.rag.chunking import split_text
+from app.rag.models import DocumentChunk
+from app.rag.pdf_loader import chunk_pdf_pages, extract_pdf_pages
 from app.rag.retrieval import RetrievedChunk, retrieve_chunks
 from app.storage import (
     StoredDocument,
@@ -63,7 +66,7 @@ class DocumentPreview(BaseModel):
     character_count: int
     preview: str
     chunk_count: int
-    chunks: list[str]
+    chunks: list[DocumentChunk]
 
 
 class SearchResponse(BaseModel):
@@ -71,12 +74,11 @@ class SearchResponse(BaseModel):
     filename: str
     matches: list[RetrievedChunk]
 
-
 class AnswerSource(BaseModel):
     citation_id: int
     chunk_index: int
     text: str
-
+    page_number: int | None = None
 
 class DocumentAnswer(BaseModel):
     document_id: str
@@ -165,15 +167,15 @@ def require_document(document_id: str) -> StoredDocument:
 
     return document
 
-
-async def process_text_upload(file: UploadFile) -> DocumentPreview:
+async def process_document_upload(file: UploadFile) -> DocumentPreview:
     try:
         filename = file.filename or ""
+        extension = Path(filename).suffix.lower()
 
-        if Path(filename).suffix.lower() != ".txt":
+        if extension not in {".txt", ".pdf"}:
             raise HTTPException(
                 status_code=415,
-                detail="Only .txt files are supported for now.",
+                detail="Only .txt and .pdf files are supported.",
             )
 
         content = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -184,21 +186,43 @@ async def process_text_upload(file: UploadFile) -> DocumentPreview:
                 detail="The file must be no larger than 1 MiB.",
             )
 
-        try:
-            text = content.decode("utf-8-sig").strip()
-        except UnicodeDecodeError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail="Save the text file using UTF-8 encoding.",
-            ) from exc
+        if extension == ".txt":
+            try:
+                text = content.decode("utf-8-sig").strip()
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Save the text file using UTF-8 encoding.",
+                ) from exc
 
-        if not text:
-            raise HTTPException(
-                status_code=422,
-                detail="The file contains no text.",
-            )
+            if not text:
+                raise HTTPException(
+                    status_code=422,
+                    detail="The file contains no text.",
+                )
 
-        chunks = split_text(text)
+            chunks = [
+                DocumentChunk(text=part)
+                for part in split_text(text)
+            ]
+
+        else:
+            try:
+                pages = await run_in_threadpool(
+                    extract_pdf_pages,
+                    content,
+                )
+                chunks = await run_in_threadpool(
+                    chunk_pdf_pages,
+                    pages,
+                )
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=str(exc),
+                ) from exc
+
+            text = "\n\n".join(page.text for page in pages)
 
         return DocumentPreview(
             filename=filename,
@@ -231,7 +255,7 @@ def chat(request: ChatRequest) -> ChatResponse:
     tags=["Documents"],
 )
 async def preview_document(file: UploadFile) -> DocumentPreview:
-    return await process_text_upload(file)
+    return await process_document_upload(file)
 
 
 @app.post(
@@ -241,7 +265,7 @@ async def preview_document(file: UploadFile) -> DocumentPreview:
     tags=["Documents"],
 )
 async def upload_document(file: UploadFile) -> StoredDocument:
-    preview = await process_text_upload(file)
+    preview = await process_document_upload(file)
 
     return await run_in_threadpool(
         save_document,
@@ -315,6 +339,7 @@ def ask_document(
             citation_id=number,
             chunk_index=match.chunk_index,
             text=match.text,
+            page_number=match.page_number,
         )
         for number, match in enumerate(matches, start=1)
     ]
@@ -349,4 +374,12 @@ def ask_document(
         filename=document.filename,
         answer=result.answer,
         sources=sources,
+    )
+
+
+@app.get("/", response_class=FileResponse, include_in_schema=False)
+def home() -> FileResponse:
+    return FileResponse(
+        PROJECT_ROOT / "app" / "static" / "index.html",
+        media_type="text/html",
     )
