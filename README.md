@@ -4,7 +4,7 @@ Upload a TXT or text-based PDF, ask a question, and inspect the passages used to
 
 **[Live demo](https://documind-vc21.onrender.com/)** · **[Interactive API docs](https://documind-vc21.onrender.com/docs)** · **[GitHub repository](https://github.com/SajidurCodes/DocuMind)**
 
-> Portfolio demo: uploaded documents are temporary on Render. They can disappear when the service restarts, redeploys, or sleeps. The first request after inactivity can take about a minute. Use non-sensitive sample documents: retrieved passages are sent to Groq for answer generation.
+> Uploaded documents are temporary on Render. They can disappear when the service restarts, redeploys, or sleeps. The first request after inactivity can take about a minute. Use non-sensitive sample documents: retrieved passages are sent to Groq for answer generation.
 
 ## What it does
 
@@ -177,48 +177,11 @@ GitHub Actions is not configured as part of this version. Tests are run locally.
 | `requirements.txt` | Application dependency snapshot |
 | `requirements-dev.txt` | Application dependencies plus test tools |
 
-## Deploy on Render
 
-Create a **Web Service** connected to this repository:
 
-| Setting | Value |
-|---|---|
-| Branch | `main` |
-| Language | Python 3 |
-| Root directory | Leave blank |
-| Build command | `python -m pip install -r requirements.txt` |
-| Start command | `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
-| Instance type | Free |
-| Environment variable | `GROQ_API_KEY` set privately in Render |
-
-The root `.python-version` file contains `3.11`. Do not use `--reload` in the deployed start command. Verify `/health`, then test a real upload and document question; the health endpoint alone does not check Groq connectivity.
-
-Render's free filesystem is temporary. SQLite records are lost on restart, redeployment, or idle spin-down. Re-upload documents when that happens. No persistent disk or external database is configured. Free hosting and model access are subject to provider quotas and availability; they are not unlimited services.
-
-Provider documentation: [Render FastAPI deployment](https://render.com/docs/deploy-fastapi), [Render free-service limits](https://render.com/docs/free), [Groq rate limits](https://console.groq.com/docs/rate-limits).
-
-## Scope and limitations
-
-- **Keyword baseline:** retrieval is not semantic search or BM25. Common words can produce weak matches; synonyms can be missed. There are no embeddings, vector database, or reranker in this version.
-- **PDF extraction:** scanned pages without a text layer need OCR, which is not implemented. Encrypted PDFs are rejected. Pages with no extracted text are skipped; mixed scanned/text PDFs may therefore yield incomplete content. Complex tables and layouts can extract poorly.
-- **Grounding:** model-generated answers and citations can be wrong. Source passages support manual inspection; automated factual or citation verification is not implemented.
-- **Demo access:** there is no authentication, ownership enforcement, or application-level rate limiting. Document IDs select records; they are not an authorization system. Do not upload confidential information.
-- **Data handling:** retrieved text and the question are sent to Groq. Browser output uses plain text, so Markdown markers in generated answers can remain visible.
-- **Upload limits:** the 1 MiB check runs after multipart parsing. It is not an ingress-level limit or a hard bound on PDF parsing memory usage.
-- **Operations:** storage is temporary on the hosted demo. Document deletion, retention management, conversation memory, response streaming, caching, and background ingestion jobs are not implemented.
-
-## Next improvements
-
-- [ ] Evaluate retrieval on a curated set of answerable and unanswerable questions.
-- [ ] Compare keyword overlap with BM25 and embedding-based retrieval.
-- [ ] Add automated PDF extraction and end-to-end upload tests.
-- [ ] Add authentication, document ownership, deletion, and rate limiting.
-- [ ] Separate routes and services as the application grows.
-- [ ] Add durable hosted storage when the deployment requirements change.
-- [ ] Improve paragraph-aware chunking and citation verification.
 
 ## Author
 
-Built by [Sajidur Rahman Siam](https://github.com/SajidurCodes) as a hands-on AI engineering portfolio project.
+Built by [Sajidur Rahman Siam](https://github.com/SajidurCodes) as hobby project.
 
-The project demonstrates document ingestion, metadata preservation, retrieval-augmented generation, API design, browser integration, regression testing, and deployment. It is a working learning project, not a production-ready document platform.
+
