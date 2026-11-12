@@ -20,3 +20,7 @@ htmlcov/
 
 # Local document uploads
 data/uploads/
+
+
+# Local database and its temporary files
+data/local/
